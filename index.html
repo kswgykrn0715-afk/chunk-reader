@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Chunk Reader Pro (Library Switch)</title>
+  <style>
+    :root { --pad: 12px; --footer-h: 180px; }
+    body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background:#fff; }
+    header { position: sticky; top: 0; z-index: 20; background:#fff; border-bottom:1px solid #ddd; padding: var(--pad); }
+    .grid { display:grid; grid-template-columns:1fr; gap:10px; }
+    @media (min-width: 980px){ .grid { grid-template-columns:1.1fr 0.9fr; } }
+    textarea { width:100%; min-height:150px; resize:vertical; font-size:14px; line-height:1.5; padding:10px; border:1px solid #ccc; border-radius:10px; box-sizing:border-box; }
+    .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    button, select { padding:10px 12px; font-size:14px; border:1px solid #ccc; background:#fff; border-radius:12px; }
+    button { cursor:pointer; }
+    button:active { transform: translateY(1px); }
+    .meta { font-size:12px; color:#666; }
+    .pill { display:inline-block; padding:2px 8px; border:1px solid #ddd; border-radius:999px; font-size:12px; }
+    input[type="range"]{ width:220px; }
+    label { font-size:13px; color:#333; }
+    .sub { font-size:13px; color:#555; margin-top:6px; }
+    .tiny { font-size:12px; color:#777; }
+    .warn { color:#a33; font-size:12px; margin-top:6px; }
+    main { padding: 12px; padding-bottom: calc(var(--footer-h) + 18px); font-size: 16px; line-height: 1.85; }
+    .chunk { padding: 6px 6px; border-radius: 10px; margin: 2px 0; transition: background 120ms; word-break: break-word; }
+    .chunk.active { background: #fff3a0; }
+    .chunk:hover { background: #f7f7f7; }
+    footer {
+      position: fixed; left:0; right:0; bottom:0; z-index: 30;
+      height: var(--footer-h); background:#fff; border-top:1px solid #ddd;
+      display:flex; align-items:flex-start; padding: 12px; box-sizing: border-box; gap: 12px;
+    }
+    .footer-left{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .footer-mid { flex:1; min-width:0; }
+    .now{
+      border:1px solid #eee; border-radius: 14px; padding: 14px 14px;
+      font-size: 20px; line-height: 1.55; background:#fff3a0;
+      overflow:auto; white-space: normal;
+      max-height: calc(var(--footer-h) - 44px);
+    }
+    .progress{ font-size:12px; color:#666; margin-top:8px; display:flex; gap:10px; flex-wrap:wrap; }
+    .dot { width:10px; height:10px; border-radius:999px; background:#ddd; display:inline-block; }
+    .dot.active { background:#f0c400; }
+    
+    .topbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .topbar .grow { flex:1; min-width: 220px; }
+    .compact { font-size:12px; color:#666; }
+    details { border:1px solid #eee; border-radius:12px; padding:10px; background:#fafafa; }
+    summary { cursor:pointer; font-weight:600; }
+    .panelGrid { display:grid; grid-template-columns:1fr; gap:10px; margin-top:10px; }
+    @media (min-width: 980px){ .panelGrid { grid-template-columns:1fr 1fr; } }
+
+    .errorBox { margin-top:8px; padding:10px; border:1px solid #f2b8b5; background:#fff5f5; color:#7a1b16; border-radius: 10px; display:none; font-size:12px; white-space: pre-wrap; }
+    .libbar { padding: 10px 0 0; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="meta">教材切替 → すぐ再生。下の黄色枠がメイン表示（現在チャンク）。</div>
+
+  <div class="topbar" style="margin-top:8px">
+    <span class="pill">教材</span>
+    <select id="storySelect"></select>
+    <button id="btnPrevStory">⟵</button>
+    <button id="btnNextStory">⟶</button>
+
+    <span style="width:10px"></span>
+
+    <button id="btnStart">▶︎</button>
+    <button id="btnPause">⏸</button>
+    <button id="btnReset">↩︎</button>
+
+    <span class="pill">WPM <span id="wpmVal">120</span></span>
+    <input id="wpm" type="range" min="60" max="220" value="120" />
+
+    <span class="pill">状態: <span id="status">停止</span></span>
+  </div>
+
+  <div class="row" style="margin-top:8px">
+    <span class="pill">チャンク: <span id="chunkCount">-</span></span>
+    <span class="pill">語数: <span id="wordCount">-</span></span>
+    <span class="pill" id="storyLabelFooter">教材: -</span>
+  </div>
+
+  <details style="margin-top:10px">
+    <summary>⚙︎ 詳細設定（音声・間・文章編集）</summary>
+    <div class="panelGrid">
+      <div>
+        <div class="meta">チャンク区切り（/ で区切り。改行も区切り扱い）</div>
+        <textarea id="src"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button id="btnReloadStory">↻ この教材を再読み込み</button>
+          <button id="btnLoad">⟳ 手動で読み込み</button>
+        </div>
+        <div class="compact">先生用：文章ストックはHTML内の <b>STORIES</b> に追加するだけ。</div>
+        <div class="errorBox" id="errBox"></div>
+      </div>
+
+      <div>
+        <div class="meta">音声・同期</div>
+
+        <div class="row" style="margin-top:6px">
+          <label><input type="checkbox" id="syncAudio" checked /> 音声同期</label>
+          <label><input type="checkbox" id="autoSpeak" checked /> 自動読み上げ</label>
+        </div>
+
+        <div class="row" style="margin-top:8px">
+          <span>英語音声</span>
+          <select id="voiceSelect"></select>
+          <button id="btnVoiceTest">🎧 テスト</button>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <button id="btnSpeakChunk">🔊 いまのチャンク</button>
+          <button id="btnStopSpeak">■ 停止</button>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <span>チャンク間(ms)</span>
+          <input id="gap" type="range" min="0" max="900" step="50" value="250" />
+          <span id="gapVal">250</span>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <span>Pitch</span>
+          <input id="pitch" type="range" min="0.8" max="1.2" step="0.05" value="1.0" />
+          <span id="pitchVal">1.00</span>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <span>文末の間(ms)</span>
+          <input id="sentPause" type="range" min="0" max="600" step="50" value="250" />
+          <span id="sentPauseVal">250</span>
+        </div>
+
+        <div class="warn" id="ttsWarn" style="display:none;">このブラウザは音声読み上げ（speechSynthesis）に未対応です。</div>
+        <div class="compact">※iPhone/iPadは「再生」などの操作後に音が出る仕様があるので、まず▶︎を押してください。</div>
+      </div>
+    </div>
+  </details>
+</header>
+
+<main id="reader"></main>
+
+<footer>
+  <div class="footer-left">
+    <button id="btnPrev" title="前のチャンク">◀︎</button>
+    <button id="btnNext" title="次のチャンク">▶︎</button>
+  </div>
+  <div class="footer-mid">
+    <div class="now" id="nowText">（教材を選択してください）</div>
+    <div class="progress">
+      <span>位置: <span id="pos">-</span></span>
+      <span>チャンク語数: <span id="cw">-</span></span>
+      <span class="dot" id="dot"></span>
+      <span class="pill" id="storyLabelFooter">教材: -</span>
+    </div>
+  </div>
+  <div class="footer-right">
+    <button id="btnTop" title="先頭へ">↑</button>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  // =========================
+  // ✅ 文章ストック（ここに追加）
+  // =========================
+  const STORIES = [
+    {
+      id: "eiken4_park",
+      title: "英検4級｜After School at the Park",
+      text: `After school / I usually go to the park / near my house.
+I like this park / because it is quiet / and has many trees.
+Sometimes / I play soccer / with my friends / after school.
+We practice / for about one hour / and then / we go home together.
+On rainy days / I do not go outside.
+I stay at home / and do my homework / or read a book.
+My favorite time / is the evening, / because I can relax / and talk with my family.
+I think / my after-school time / is very important, / because it helps me / enjoy my day.`
+    },
+    {
+      id: "eiken4_library",
+      title: "英検4級｜A Visit to the Library",
+      text: `Last Saturday / I went to the library / with my sister.
+We wanted to find / a book about animals.
+First, / we asked the staff / where the animal books were.
+The staff smiled / and showed us / the correct shelf.
+I chose / a book about dolphins, / and my sister chose / a book about dogs.
+We sat down / and read quietly / for about thirty minutes.
+Before we went home, / we borrowed the books / and said thank you.
+I was happy / because I learned / many new things.`
+    },
+    {
+      id: "eiken4_lunch",
+      title: "英検4級｜My School Lunch",
+      text: `At my school, / we eat lunch / in the classroom.
+Today’s lunch / was very good.
+We had / rice, / soup, / and fish.
+My friend said, / “I love fish,” / and he smiled.
+Some students / do not like vegetables, / but I try / to eat them.
+After lunch, / we clean the classroom / together.
+I think / school lunch time / is fun / because we can talk / and relax.`
+    }
+  ];
+
+  // ---------- Elements ----------
+  const elSrc = $("src");
+  const reader = $("reader");
+
+  const chunkCount = $("chunkCount");
+  const wordCount = $("wordCount");
+  const status = $("status");
+  const errBox = $("errBox");
+
+  const wpm = $("wpm");
+  const wpmVal = $("wpmVal");
+  const gap = $("gap");
+  const gapVal = $("gapVal");
+  const pitch = $("pitch");
+  const pitchVal = $("pitchVal");
+  const sentPause = $("sentPause");
+  const sentPauseVal = $("sentPauseVal");
+
+  const syncAudio = $("syncAudio");
+  const autoSpeak = $("autoSpeak");
+
+  const voiceSelect = $("voiceSelect");
+  const ttsWarn = $("ttsWarn");
+
+  const nowText = $("nowText");
+  const pos = $("pos");
+  const cw = $("cw");
+  const dot = $("dot");
+  const storyLabel = $("storyLabel");
+  const storyLabelFooter = $("storyLabelFooter");
+
+  const storySelect = $("storySelect");
+
+  let chunks = [];
+  let chunkEls = [];
+  let idx = 0;
+
+  let running = false;
+  let timer = null;
+
+  // ---------- Error surface ----------
+  function showError(msg) {
+    errBox.style.display = "block";
+    errBox.textContent = msg;
+  }
+  window.addEventListener("error", (e) => {
+    showError("JS Error: " + (e.message || e.type) + "\\n" + (e.filename || "") + ":" + (e.lineno || "") );
+  });
+
+  // ---------- Parsing ----------
+  function parseChunks(text) {
+    // ✅ Stability-first parsing:
+    // Treat BOTH "/" and newline as chunk separators.
+    // This prevents cases like "shelf.\nI chose" becoming "shelf.I chose" in one chunk.
+    return text
+      .replace(/\r/g, "")
+      .split(/\s*\/\s*|\n+/)   // "/" or one+ newlines
+      .map(s => s.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+  }
+
+  function countWords(text) {
+    const cleaned = text.replace(/[^\\w\\s']/g, " ");
+    return cleaned.split(/\\s+/).filter(Boolean).length;
+  }
+
+  function totalWords(arr) {
+    return arr.reduce((sum, c) => sum + countWords(c), 0);
+  }
+
+  function msPerWord() {
+    const target = Number(wpm.value);
+    return 60000 / Math.max(1, target);
+  }
+
+  function chunkDurationMs(i) {
+    const words = countWords(chunks[i] || "");
+    return Math.max(450, Math.round(words * msPerWord()));
+  }
+
+  // ---------- UI build (STABLE: build once) ----------
+  function buildReader() {
+    reader.innerHTML = chunks.map((c,i)=>`<div class="chunk" data-idx="${i}">${escapeHtml(c)}</div>`).join("");
+    chunkEls = Array.from(reader.querySelectorAll(".chunk"));
+
+    chunkEls.forEach(el => {
+      el.addEventListener("click", () => {
+        const n = Number(el.getAttribute("data-idx"));
+        if (!Number.isNaN(n)) { idx = n; updateActive(true); }
+      });
+    });
+
+    updateActive(true);
+  }
+
+  function updateFooter() {
+    const text = chunks[idx] || "";
+    nowText.textContent = text ? text : "（空です）";
+    pos.textContent = chunks.length ? `${idx+1} / ${chunks.length}` : "-";
+    cw.textContent = text ? String(countWords(text)) : "-";
+    dot.classList.toggle("active", running);
+  }
+
+  function updateActive(force=false) {
+    if (!chunkEls.length) return;
+
+    const prev = reader.querySelector(".chunk.active");
+    if (prev) prev.classList.remove("active");
+
+    const el = chunkEls[idx];
+    if (!el) return;
+    el.classList.add("active");
+
+    const footerH = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--footer-h"),10) || 92;
+    const rect = el.getBoundingClientRect();
+    const viewBottom = window.innerHeight - footerH;
+    const out = rect.top < 80 || rect.bottom > viewBottom - 20;
+
+    if (force || out) {
+      el.scrollIntoView({behavior: force ? "auto" : "smooth", block:"center", inline:"nearest"});
+    }
+
+    updateFooter();
+  }
+
+  // ---------- TTS ----------
+  function hasTTS() { return ("speechSynthesis" in window) && ("SpeechSynthesisUtterance" in window); }
+
+  function scoreVoice(v) {
+    const name = (v.name || "").toLowerCase();
+    const lang = (v.lang || "").toLowerCase();
+    let score = 0;
+    if (lang.startsWith("en")) score += 30;
+    if (lang.startsWith("en-us")) score += 12;
+    if (lang.startsWith("en-gb")) score += 10;
+    ["google","siri","natural","premium","enhanced","microsoft","neural"].forEach(k => { if (name.includes(k)) score += 18; });
+    ["sam","fred","whisper","zarvox"].forEach(k => { if (name.includes(k)) score -= 15; });
+    if (v.localService) score += 5;
+    return score;
+  }
+
+  function populateVoices() {
+    if (!hasTTS()) return;
+    const voices = speechSynthesis.getVoices();
+    voiceSelect.innerHTML = "";
+    voices.forEach((v, i) => {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = `${v.name} (${v.lang})${v.localService ? " • local" : ""}`;
+      voiceSelect.appendChild(opt);
+    });
+
+    let bestIdx = 0, bestScore = -1e9;
+    voices.forEach((v,i)=> {
+      const s = scoreVoice(v);
+      if (s > bestScore) { bestScore = s; bestIdx = i; }
+    });
+    voiceSelect.value = String(bestIdx);
+  }
+
+  function getSelectedVoice() {
+    const voices = speechSynthesis.getVoices();
+    const i = Number(voiceSelect.value || 0);
+    return voices[i] || null;
+  }
+
+  function rateFromWPM(targetWpm) {
+    const base = 170;
+    const r = targetWpm / base;
+    return Math.min(1.2, Math.max(0.6, r));
+  }
+
+  function splitForProsody(text) {
+    const parts = text.replace(/\\s+/g," ").trim()
+      .split(/(?<=[\\.\\?\\!])\\s+|(?<=,)\\s+/g)
+      .filter(Boolean);
+    return parts.length ? parts : [text];
+  }
+
+  function stopSpeak() {
+    if (hasTTS()) speechSynthesis.cancel();
+  }
+
+  function speakText(text, onEnd) {
+    if (!hasTTS()) { if (onEnd) onEnd(); return; }
+    const v = getSelectedVoice();
+    const parts = splitForProsody(text);
+    let k = 0;
+
+    stopSpeak();
+
+    const speakNext = () => {
+      if (!running && onEnd) return onEnd();
+      if (k >= parts.length) { if (onEnd) onEnd(); return; }
+
+      const u = new SpeechSynthesisUtterance(parts[k]);
+      if (v) u.voice = v;
+      u.lang = (v && v.lang) ? v.lang : "en-US";
+      u.rate = rateFromWPM(Number(wpm.value));
+      u.pitch = Number(pitch.value);
+
+      u.onend = () => {
+        k += 1;
+        const p = Number(sentPause.value);
+        clearTimeout(timer);
+        timer = setTimeout(speakNext, Math.max(0, p));
+      };
+      u.onerror = () => { k += 1; speakNext(); };
+
+      speechSynthesis.speak(u);
+    };
+
+    speakNext();
+  }
+
+  function speakChunk(i, onEnd) { speakText(chunks[i] || "", onEnd); }
+
+  // ---------- Playback ----------
+  function setStatus(s) { status.textContent = s; }
+
+  function clearTimer() { if (timer) clearTimeout(timer); timer = null; }
+
+  function start() {
+    if (running || !chunks.length) return;
+    running = true;
+    dot.classList.add("active");
+    setStatus("再生中");
+
+    if (syncAudio.checked && autoSpeak.checked && hasTTS()) stepAudio();
+    else {
+      stepTimer();
+      if (autoSpeak.checked && hasTTS()) speakChunk(idx);
+    }
+  }
+
+  function pause() {
+    if (!running) return;
+    running = false;
+    dot.classList.remove("active");
+    setStatus("停止");
+    clearTimer();
+    stopSpeak();
+    updateFooter();
+  }
+
+  function reset() { pause(); idx = 0; updateActive(true); }
+
+  function next() { idx = Math.min(idx + 1, Math.max(0, chunks.length - 1)); updateActive(); }
+  function prev() { idx = Math.max(idx - 1, 0); updateActive(); }
+
+  function stepTimer() {
+    if (!running) return;
+    updateActive();
+    if (idx >= chunks.length - 1) { pause(); return; }
+    const wait = chunkDurationMs(idx) + Number(gap.value);
+    clearTimer();
+    timer = setTimeout(() => { idx += 1; stepTimer(); }, wait);
+  }
+
+  function stepAudio() {
+    if (!running) return;
+    updateActive();
+    if (idx >= chunks.length) { pause(); return; }
+
+    speakChunk(idx, () => {
+      if (!running) return;
+      const pauseMs = Number(gap.value);
+      clearTimer();
+      timer = setTimeout(() => {
+        if (!running) return;
+        if (idx >= chunks.length - 1) { pause(); return; }
+        idx += 1;
+        stepAudio();
+      }, pauseMs);
+    });
+  }
+
+  function buildStorySelect() {
+    storySelect.innerHTML = "";
+    STORIES.forEach((s, i) => {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = s.title;
+      storySelect.appendChild(opt);
+    });
+  }
+
+  function setStory(i, {autoLoad=true} = {}) {
+    const n = ((i % STORIES.length) + STORIES.length) % STORIES.length;
+    storySelect.value = String(n);
+    const story = STORIES[n];
+    elSrc.value = story.text;
+    if (storyLabel) storyLabel.textContent = `教材: ${story.title}`;
+    if (storyLabelFooter) storyLabelFooter.textContent = `教材: ${story.title}`;
+    if (autoLoad) load();
+  }
+
+  function load() {
+    pause();
+    errBox.style.display = "none";
+    chunks = parseChunks(elSrc.value);
+    idx = 0;
+    chunkCount.textContent = chunks.length ? String(chunks.length) : "-";
+    wordCount.textContent = chunks.length ? String(totalWords(chunks)) : "-";
+    setStatus("停止");
+    buildReader();
+    updateFooter();
+  }
+
+  // ---------- Wire UI ----------
+  $("btnLoad").onclick = load;
+
+  $("btnStart").onclick = start;
+  $("btnPause").onclick = pause;
+  $("btnReset").onclick = reset;
+
+  $("btnSpeakChunk").onclick = () => { if (!chunks.length) return; stopSpeak(); speakChunk(idx); };
+  $("btnStopSpeak").onclick = stopSpeak;
+
+  $("btnPrev").onclick = prev;
+  $("btnNext").onclick = next;
+  $("btnTop").onclick = () => { window.scrollTo({top:0, behavior:"smooth"}); };
+
+  // Story controls
+  $("btnPrevStory").onclick = () => setStory(Number(storySelect.value) - 1);
+  $("btnNextStory").onclick = () => setStory(Number(storySelect.value) + 1);
+  $("btnReloadStory").onclick = () => load();
+  storySelect.onchange = () => setStory(Number(storySelect.value));
+
+  // Voice test
+  $("btnVoiceTest").onclick = () => {
+    const wasRunning = running;
+    running = true;
+    speakText("Hi! Today we will practice reading English. Please follow the highlighted parts.", () => { running = wasRunning; updateFooter(); });
+  };
+
+  // Sliders
+  wpm.addEventListener("input", () => { wpmVal.textContent = wpm.value; });
+  gap.addEventListener("input", () => { gapVal.textContent = gap.value; });
+  pitch.addEventListener("input", () => { pitchVal.textContent = Number(pitch.value).toFixed(2); });
+  sentPause.addEventListener("input", () => { sentPauseVal.textContent = sentPause.value; });
+
+  // Init values
+  wpmVal.textContent = wpm.value;
+  gapVal.textContent = gap.value;
+  pitchVal.textContent = Number(pitch.value).toFixed(2);
+  sentPauseVal.textContent = sentPause.value;
+
+  if (!hasTTS()) ttsWarn.style.display = "block";
+  else { populateVoices(); window.speechSynthesis.onvoiceschanged = populateVoices; }
+
+  // Init story library
+  buildStorySelect();
+  setStory(0, {autoLoad:true});
+})();
+</script>
+</body>
+</html>
